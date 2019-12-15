@@ -1,0 +1,18 @@
+apiVersion: notify.cronner.com/v1alpha1
+kind: Cronner
+metadata:
+  name: almc-cte-gdcronnotification
+spec:
+  cluster: gd-almc-development
+  contactMethod: smtp
+  cronjobName: consumer-touch-engine-daily
+  currentPodID: consumer-touch-engine-daily-1575640800-pvt82
+  name: almc-cte-gdcronnotification
+  namespace: almc-cte
+  smtpDl:
+    - jroberts@glynndevins.com
+    - thinton@glynndevins.com
+    - bcomer@glynndevins.com
+  smtpHost: email-smtp.us-west-2.amazonaws.com
+  smtpPort: 587
+  smtpTls: true

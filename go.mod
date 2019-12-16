@@ -3,11 +3,14 @@ module github.com/jjtroberts/cronner-operatorr
 go 1.13
 
 require (
+	github.com/docker/docker v0.7.3-0.20190817195342-4760db040282
+	github.com/go-logr/logr v0.1.0
 	github.com/operator-framework/operator-sdk v0.13.0
 	github.com/spf13/pflag v1.0.5
 	k8s.io/api v0.0.0
 	k8s.io/apimachinery v0.0.0
 	k8s.io/client-go v12.0.0+incompatible
+	k8s.io/helm v2.16.1+incompatible
 	sigs.k8s.io/controller-runtime v0.4.0
 )
 

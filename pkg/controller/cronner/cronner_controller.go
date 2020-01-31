@@ -1,7 +1,10 @@
 package cronner
 
 import (
+	"bytes"
 	"context"
+	"io"
+	"net/smtp"
 	"regexp"
 	"time"
 
@@ -10,6 +13,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -94,19 +100,85 @@ func (r *ReconcileCronner) Reconcile(request reconcile.Request) (reconcile.Resul
 	err = r.client.List(context.TODO(), podList, listOpts...)
 	//reqLogger.Info("Pods:", "PodList", podList)
 
-	pod := getNewestFailedPod(podList.Items, reqLogger, instance.Spec.CronjobName)
-	reqLogger.Info("Failed Pod:", "Name", pod)
+	failedPod := getNewestFailedPod(podList.Items, reqLogger, instance.Spec.CronjobName)
+	//reqLogger.Info("Failed Pod:", "Name", failedPod)
 
 	// If pod not null
-	// --If currentPodID != last_failed_cronjob_id
-	// ----retrieve the failed cronjob logs
-	// ----write logs to temp file
-	// ----Send an e-mail using AWS SES
-	// ----Patch cronner
+	if failedPod.GetName() != "" {
+		// --If currentPodID != last_failed_cronjob_id
+		if instance.Spec.CurrentPodID != failedPod.Name {
+			// ----retrieve the failed cronjob logs
+			reqLogger.Info("Failed Pod Mismatch:", "Last", instance.Spec.CurrentPodID, "New", failedPod.Name)
+			logs := getPodLogs(failedPod, reqLogger)
+
+			reqLogger.Info("Logs", "Logs", logs)
+			// ----Send an e-mail using AWS SES
+			// Get SES Secret
+			sesSecret := &corev1.Secret{}
+			secretID := types.NamespacedName{
+				Namespace: "cronner",
+				Name:      "aws-ses-smtp-password",
+			}
+			err = r.client.Get(context.TODO(), secretID, sesSecret)
+			plainText := string(sesSecret.Data["secret"])
+			//reqLogger.Info("SES", "Data", plainText)
+			//fmt.Println(string(res.Data["username"]))
+			err = sesSMTPSend(logs, plainText)
+			reqLogger.Info("SMTP", "Error", err)
+			// ----Patch cronner
+		}
+	}
 
 	// Output CR field
 	reqLogger.Info("Skip reconcile: testing", "Namespace", request.Namespace, "CronJob.Name", instance.Spec.CronjobName)
 	return reconcile.Result{}, nil
+}
+
+func sesSMTPSend(logs string, sesSecret string) error {
+	// Set up authentication information.
+	auth := smtp.PlainAuth("", "AKIAQOOVGWZDUJ5YJUUN", sesSecret, "email-smtp.us-west-2.amazonaws.com")
+
+	// Connect to the server, authenticate, set the sender and recipient,
+	// and send the email all in one step.
+	to := []string{"jroberts@glynndevins.com,thinton@glynndevins.com"}
+	msg := []byte("To: dataops@glynndevins.com\r\n" +
+		"Subject: CronJob Failure\r\n" +
+		"\r\n" + logs)
+	err := smtp.SendMail("email-smtp.us-west-2.amazonaws.com:587", auth, "webops@glynndevins.com", to, msg)
+	return err
+}
+
+func getPodLogs(pod corev1.Pod, reqLogger logr.Logger) string {
+	podLogOpts := corev1.PodLogOptions{}
+	config, err := rest.InClusterConfig()
+	//config, err := clientcmd.BuildConfigFromFlags("", "/Users/jroberts/.kube/config")
+	if err != nil {
+		reqLogger.Info("Error", "config", err)
+		return "error in getting config"
+	}
+	// creates the clientset
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		reqLogger.Info("Error", "access", err)
+		return "error in getting access to K8S"
+	}
+	req := clientset.CoreV1().Pods(pod.Namespace).GetLogs(pod.Name, &podLogOpts)
+	podLogs, err := req.Stream()
+	if err != nil {
+		reqLogger.Info("Error", "stream", err)
+		return "error in opening stream"
+	}
+	defer podLogs.Close()
+
+	buf := new(bytes.Buffer)
+	_, err = io.Copy(buf, podLogs)
+	if err != nil {
+		reqLogger.Info("Error", "copy", err)
+		return "error in copy information from podLogs to buf"
+	}
+	str := buf.String()
+
+	return str
 }
 
 // getPodNames returns the pod names of the array of pods passed in

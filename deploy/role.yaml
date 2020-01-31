@@ -1,8 +1,9 @@
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+kind: ClusterRole
 metadata:
   creationTimestamp: null
   name: cronner-operator
+  namespace: cronner
 rules:
 - apiGroups:
   - ""
@@ -68,9 +69,11 @@ rules:
   - get
 - apiGroups:
   - notify.cronner.com
+  - cronners.notify.cronner.com
   resources:
   - '*'
   - cronners
+  - cronners.notify.cronner.com
   verbs:
   - create
   - delete
